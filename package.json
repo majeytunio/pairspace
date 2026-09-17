@@ -1,0 +1,42 @@
+{
+  "name": "pairspace",
+  "version": "0.1.0",
+  "private": true,
+  "author": "Ali Quraishi",
+  "description": "Remote pair-programming and whiteboarding app with CRDT sync, session persistence, and an in-browser execution sandbox. Built on Next.js and Supabase.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@supabase/supabase-js": "2.45.4",
+    "@supabase/ssr": "0.5.1",
+    "yjs": "13.6.18",
+    "y-protocols": "1.0.6",
+    "y-codemirror.next": "0.3.4",
+    "@codemirror/lang-javascript": "6.2.2",
+    "@codemirror/lang-python": "6.1.6",
+    "@codemirror/state": "6.4.1",
+    "@codemirror/view": "6.28.6",
+    "codemirror": "6.0.1",
+    "tldraw": "2.4.6",
+    "nanoid": "5.0.7",
+    "clsx": "2.1.1"
+  },
+  "devDependencies": {
+    "typescript": "5.5.4",
+    "@types/node": "20.14.15",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "tailwindcss": "3.4.10",
+    "postcss": "8.4.41",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5"
+  }
+}
