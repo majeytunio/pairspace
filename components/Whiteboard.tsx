@@ -12,6 +12,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Tldraw, createTLStore, defaultShapeUtils, type TLRecord, type Editor as TldrawEditor } from "tldraw";
+// tldraw ships this stylesheet for bundlers but does not expose a TypeScript declaration.
+// @ts-expect-error -- intentional side-effect stylesheet import
 import "tldraw/tldraw.css";
 import type * as Y from "yjs";
 import type { SupabaseYjsProvider } from "@/lib/yjs/supabase-provider";
