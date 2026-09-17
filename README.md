@@ -24,6 +24,13 @@ Remote pair programming and dynamic whiteboarding, built on **Next.js 14** and *
 
 1. **Create a Supabase project**, then run `supabase/schema.sql` in the SQL editor (or
    `supabase db push` if you're using the CLI). It creates all tables, RLS policies, and triggers.
+
+   > **Already ran an earlier version of this schema?** The `doc_snapshots.state` and
+   > `whiteboard_snapshots.state` columns used to be `bytea`, which breaks on read because
+   > Postgres's default `bytea_output` is hex, not base64, and the client decodes with `atob()`
+   > expecting base64. Run `supabase/migrations/001_snapshots_bytea_to_text.sql` once to convert
+   > the existing columns (and data) to `text` in place. New projects created from the current
+   > `schema.sql` don't need this — they already use `text`.
 2. **Enable Email + Password auth** in Supabase Auth settings (Authentication → Providers →
    Email). If you want new accounts to be able to sign in immediately without clicking a
    confirmation email, turn off "Confirm email" there too — otherwise `signUp` will require the

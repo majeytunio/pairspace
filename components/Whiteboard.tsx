@@ -27,6 +27,15 @@ export default function Whiteboard({ doc, provider, ready }: WhiteboardProps) {
   const editorRef = useRef<TldrawEditor | null>(null);
   const applyingRemote = useRef(false);
 
+  // IDs we've written into the local store *because Yjs told us to*.
+  // This is the set we diff against on every remote update — never the
+  // whole local store — because the store also holds records tldraw
+  // manages itself (instance state, camera, focus, page state) that were
+  // never in the Yjs map and must never be deleted by this sync logic.
+  // Deleting one of those (e.g. "instance:instance") is what caused the
+  // "Cannot read properties of undefined (reading 'isFocused')" crash.
+  const syncedIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!ready || !provider) return;
 
@@ -40,15 +49,25 @@ export default function Whiteboard({ doc, provider, ready }: WhiteboardProps) {
       store.put(initial);
       applyingRemote.current = false;
     }
+    syncedIds.current = new Set<string>(initial.map((r) => r.id));
 
     // tldraw -> Yjs
     const unsubscribeStore = store.listen(
       ({ changes }) => {
         if (applyingRemote.current) return;
         doc.transact(() => {
-          for (const record of Object.values(changes.added)) records.set(record.id, record);
-          for (const [, record] of Object.values(changes.updated)) records.set(record.id, record as TLRecord);
-          for (const record of Object.values(changes.removed)) records.delete(record.id);
+          for (const record of Object.values(changes.added)) {
+            records.set(record.id, record);
+            syncedIds.current.add(record.id);
+          }
+          for (const [, record] of Object.values(changes.updated)) {
+            records.set(record.id, record as TLRecord);
+            syncedIds.current.add(record.id);
+          }
+          for (const record of Object.values(changes.removed)) {
+            records.delete(record.id);
+            syncedIds.current.delete(record.id);
+          }
         });
       },
       { source: "user", scope: "document" }
@@ -58,13 +77,19 @@ export default function Whiteboard({ doc, provider, ready }: WhiteboardProps) {
     const observer = () => {
       applyingRemote.current = true;
       const snapshot = Array.from(records.values());
-      const currentIds = new Set(store.allRecords().map((r) => r.id));
-      const incomingIds = new Set(snapshot.map((r) => r.id));
+      const incomingIds = new Set<string>(snapshot.map((r) => r.id));
+
+      // Only remove records that Yjs previously gave us and has now
+      // dropped — anything else in the local store belongs to tldraw
+      // itself and is out of scope for this sync.
+      const toRemove = Array.from(syncedIds.current).filter(
+        (id) => !incomingIds.has(id)
+      ) as unknown as TLRecord["id"][];
 
       store.put(snapshot);
-      for (const id of currentIds) {
-        if (!incomingIds.has(id)) store.remove([id as never]);
-      }
+      if (toRemove.length) store.remove(toRemove);
+
+      syncedIds.current = incomingIds;
       applyingRemote.current = false;
     };
     records.observeDeep(observer);

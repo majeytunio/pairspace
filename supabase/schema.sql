@@ -3,9 +3,13 @@
 --
 -- Run this in the Supabase SQL editor, or via `supabase db push`.
 -- Design notes:
---   - Yjs documents are stored as raw CRDT update bytes (bytea), produced by
---     Y.encodeStateAsUpdate(doc) on the client. Postgres never interprets the
---     content; it is an opaque, mergeable blob.
+--   - Yjs documents are stored as base64-encoded CRDT update bytes (text),
+--     produced by Y.encodeStateAsUpdate(doc) on the client. This is stored as
+--     `text`, not `bytea` — Postgres's bytea defaults to hex output over
+--     PostgREST, which does not round-trip through the browser's atob() the
+--     way the client expects. Storing the base64 string as-is in a text
+--     column keeps write and read symmetric. Postgres never interprets the
+--     content either way; it is an opaque, mergeable blob.
 --   - "Active" session state (who's online, cursor positions) is intentionally
 --     NOT stored here — that lives in Supabase Realtime Presence, which is
 --     ephemeral by design. This schema only persists durable state:
@@ -49,7 +53,7 @@ create index if not exists participants_user_idx on public.session_participants 
 create table if not exists public.doc_snapshots (
   session_id uuid not null references public.sessions (id) on delete cascade,
   doc_id     text not null default 'main',
-  state      bytea not null,
+  state      text not null, -- base64-encoded Yjs update, written and read as-is by the client
   version    bigint not null default 1,
   updated_at timestamptz not null default now(),
   primary key (session_id, doc_id)
@@ -60,7 +64,7 @@ create table if not exists public.doc_snapshots (
 -- ---------------------------------------------------------------------------
 create table if not exists public.whiteboard_snapshots (
   session_id uuid primary key references public.sessions (id) on delete cascade,
-  state      bytea not null,
+  state      text not null, -- base64-encoded Yjs update, written and read as-is by the client
   version    bigint not null default 1,
   updated_at timestamptz not null default now()
 );

@@ -48,7 +48,7 @@ export interface Database {
         Row: {
           session_id: string;
           doc_id: string;
-          state: string; // bytea comes back base64/hex-encoded over the JS client
+          state: string; // base64-encoded Yjs update, stored as text (see supabase/schema.sql)
           version: number;
           updated_at: string;
         };
