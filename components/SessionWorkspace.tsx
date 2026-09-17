@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useSessionDoc, type PresenceUser } from "@/lib/yjs/useSessionDoc";
 import PresenceBar from "@/components/PresenceBar";
 import Sandbox from "@/components/Sandbox";
+import ShareButton from "@/components/ShareButton";
 
 // tldraw pulls in browser-only APIs; load it client-side only.
 const Whiteboard = dynamic(() => import("@/components/Whiteboard"), { ssr: false });
@@ -50,10 +51,13 @@ export default function SessionWorkspace({ sessionId, sessionName, language, use
             ))}
           </nav>
         </div>
-        <PresenceBar
-          peers={view === "code" ? editorSession.peers : boardSession.peers}
-          connected={(view === "code" ? editorSession.provider : boardSession.provider)?.isConnected ?? false}
-        />
+        <div className="flex items-center gap-3">
+          <PresenceBar
+            peers={view === "code" ? editorSession.peers : boardSession.peers}
+            connected={(view === "code" ? editorSession.provider : boardSession.provider)?.isConnected ?? false}
+          />
+          <ShareButton />
+        </div>
       </header>
 
       <div className="flex flex-1 gap-3 overflow-hidden p-3">

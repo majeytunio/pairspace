@@ -12,10 +12,21 @@ export default async function HomePage() {
 
   if (!userData.user) redirect("/login");
 
-  const { data: sessions } = await supabase
-    .from("sessions")
-    .select("id, name, language, status, last_active_at")
-    .order("last_active_at", { ascending: false });
+  // app/page.tsx
+  const { data: participantRows } = await supabase
+    .from("session_participants")
+    .select("session_id")
+    .eq("user_id", userData.user.id);
+
+  const sessionIds = participantRows?.map((r) => r.session_id) ?? [];
+
+  const { data: sessions } = sessionIds.length
+    ? await supabase
+        .from("sessions")
+        .select("id, name, language, status, last_active_at")
+        .in("id", sessionIds)
+        .order("last_active_at", { ascending: false })
+    : { data: [] };
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
