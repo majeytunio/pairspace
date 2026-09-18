@@ -12,7 +12,11 @@ export default async function HomePage() {
 
   if (!userData.user) redirect("/login");
 
-  // app/page.tsx
+  // sessions_select's RLS policy now allows any signed-in user to read
+  // any session by id (that's what makes invite links work — see
+  // supabase/schema.sql for why). That means it's no longer safe to
+  // assume a plain `select * from sessions` is scoped to "my sessions" —
+  // it isn't anymore. Filter explicitly via session_participants instead.
   const { data: participantRows } = await supabase
     .from("session_participants")
     .select("session_id")
@@ -26,7 +30,7 @@ export default async function HomePage() {
         .select("id, name, language, status, last_active_at")
         .in("id", sessionIds)
         .order("last_active_at", { ascending: false })
-    : { data: [] };
+    : { data: [] as { id: string; name: string; language: string; status: string; last_active_at: string }[] };
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">

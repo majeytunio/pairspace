@@ -1,9 +1,13 @@
-// components/ShareButton.tsx
+/**
+ * Author: Ali Quraishi
+ */
 "use client";
+
 import { useState } from "react";
 
 export default function ShareButton() {
   const [copied, setCopied] = useState(false);
+
   return (
     <button
       onClick={async () => {

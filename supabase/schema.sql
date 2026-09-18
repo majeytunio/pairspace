@@ -136,10 +136,18 @@ as $$
   );
 $$;
 
--- sessions: members can read; only the owner can update/delete; any
--- authenticated user can create a session (becoming its owner).
+-- sessions: any signed-in user can read a session by id — the session
+-- UUID itself is the invite link, so a second person needs to be able
+-- to load the row *before* they're a participant, or they can never
+-- reach the code path that adds them as one. (An earlier, stricter
+-- version of this policy required existing membership to even read the
+-- row, which made joining via an invite link impossible for anyone but
+-- the owner — that's the real reason invited users saw "no vision" of
+-- the owner's work: they were never able to load the session at all.)
+-- Only the owner can update/delete; any authenticated user can create a
+-- session (becoming its owner).
 create policy sessions_select on public.sessions
-  for select using (public.is_session_member(id) or owner_id = auth.uid());
+  for select using (auth.uid() is not null);
 
 create policy sessions_insert on public.sessions
   for insert with check (owner_id = auth.uid());

@@ -36,6 +36,7 @@ type UseSessionDocArgs = {
 export function useSessionDoc({ sessionId, docId, table, user }: UseSessionDocArgs) {
   const docRef = useRef<Y.Doc>();
   const providerRef = useRef<SupabaseYjsProvider>();
+  const detachAutosaveRef = useRef<() => void>();
   const [ready, setReady] = useState(false);
   const [peers, setPeers] = useState<PresenceUser[]>([]);
 
@@ -69,8 +70,13 @@ export function useSessionDoc({ sessionId, docId, table, user }: UseSessionDocAr
         setPeers(states.map((s) => s.user).filter(Boolean) as PresenceUser[]);
       });
 
-      // 3. Debounced autosave back to Postgres.
-      const detachAutosave = attachAutosave(
+      // 3. Debounced autosave back to Postgres. Stashed in a ref (not
+      // just returned from this async function) because a `return`
+      // inside an async IIFE only resolves that function's own promise —
+      // nobody was awaiting it, so the previous version of this hook
+      // silently discarded it and never actually detached the listener
+      // on unmount.
+      detachAutosaveRef.current = attachAutosave(
         supabase,
         doc,
         table === "doc_snapshots"
@@ -79,12 +85,11 @@ export function useSessionDoc({ sessionId, docId, table, user }: UseSessionDocAr
       );
 
       setReady(true);
-
-      return () => detachAutosave();
     })();
 
     return () => {
       cancelled = true;
+      detachAutosaveRef.current?.();
       providerRef.current?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -25,12 +25,20 @@ Remote pair programming and dynamic whiteboarding, built on **Next.js 14** and *
 1. **Create a Supabase project**, then run `supabase/schema.sql` in the SQL editor (or
    `supabase db push` if you're using the CLI). It creates all tables, RLS policies, and triggers.
 
-   > **Already ran an earlier version of this schema?** The `doc_snapshots.state` and
-   > `whiteboard_snapshots.state` columns used to be `bytea`, which breaks on read because
-   > Postgres's default `bytea_output` is hex, not base64, and the client decodes with `atob()`
-   > expecting base64. Run `supabase/migrations/001_snapshots_bytea_to_text.sql` once to convert
-   > the existing columns (and data) to `text` in place. New projects created from the current
-   > `schema.sql` don't need this — they already use `text`.
+   > **Already ran an earlier version of this schema?** Run these migrations once, in order:
+   > - `supabase/migrations/001_snapshots_bytea_to_text.sql` — the `doc_snapshots.state` and
+   >   `whiteboard_snapshots.state` columns used to be `bytea`, which breaks on read because
+   >   Postgres's default `bytea_output` is hex, not base64, and the client decodes with `atob()`
+   >   expecting base64.
+   > - `supabase/migrations/002_open_session_select.sql` — the original `sessions_select` policy
+   >   required existing session membership just to *read* the row, which is a chicken-and-egg
+   >   lock: nobody but the owner could ever get past it to become a participant in the first
+   >   place. This is why an invited user saw a blank board with no visibility into the owner's
+   >   work — they were silently blocked from loading the session at all, well before any
+   >   whiteboard sync logic ran.
+   >
+   > New projects created from the current `schema.sql` don't need either — both are already
+   > correct there.
 2. **Enable Email + Password auth** in Supabase Auth settings (Authentication → Providers →
    Email). If you want new accounts to be able to sign in immediately without clicking a
    confirmation email, turn off "Confirm email" there too — otherwise `signUp` will require the
@@ -93,7 +101,9 @@ supabase/schema.sql        tables, RLS policies, triggers
 
 - **Realtime broadcast has no persistence or ordering guarantee.** This is fine for Yjs, because
   CRDT updates are commutative — but it does mean you're relying on Supabase's Realtime uptime
-  for live sync; the Postgres snapshots are your durability backstop.
+  for live sync; the Postgres snapshots are your durability backstop. `SupabaseYjsProvider` also
+  retries its initial sync request a few times and periodically re-broadcasts full doc state as a
+  heartbeat, specifically to self-heal against dropped broadcast frames.
 - **The sandbox is browser-side only**, so it can't do things a real server sandbox could
   (arbitrary system calls, non-WASM-friendly languages, network access from the executed code).
   If you need that, you'd bring in an external execution API (e.g. Piston, Judge0, e2b.dev) from
@@ -103,3 +113,17 @@ supabase/schema.sql        tables, RLS policies, triggers
   writes, because CRDT merges don't carry per-write intent. If you need to actually enforce
   view-only access, gate it in the UI (disable the editor) and consider a Postgres function that
   inspects `session_participants.role` before accepting a snapshot write.
+- **`sessions_select` intentionally allows any signed-in user to read any session by id.** This is
+  what makes invite links work — the session UUID *is* the invite, and the app only adds someone
+  as a participant *after* it successfully reads the session, so a stricter "members only" policy
+  is a chicken-and-egg lock that blocks anyone but the owner from ever joining. If you want actual
+  access control beyond "you need the link," add an invite-code or allowlist check in the app
+  layer — RLS alone isn't the right place to enforce that here.
+- **Yjs observers fire for every change to a shared type, including your own.** The whiteboard
+  bridge (`Whiteboard.tsx`) has to explicitly ignore Yjs transactions that didn't originate from
+  the network (tagged with `REMOTE_ORIGIN` in `supabase-provider.ts`) — otherwise a local edit
+  immediately re-triggers the observer and re-injects the record back into the live tldraw store,
+  including mid-drag, corrupting or dropping the in-progress stroke before it's even broadcast.
+  Remote-origin changes are applied via tldraw's own `store.mergeRemoteChanges()`, which tags them
+  as source "remote" so they don't loop back out through `store.listen`'s `{source: "user"}`
+  filter.

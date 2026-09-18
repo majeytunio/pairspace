@@ -27,7 +27,13 @@ import * as Y from "yjs";
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 
-const LOCAL_ORIGIN = Symbol("supabase-provider-local");
+// Exported so consumers (e.g. Whiteboard.tsx) can tell, inside a Yjs
+// observer callback, whether a given transaction came from the network
+// (this symbol) versus a purely local write. That distinction matters
+// for any shared type where local writes shouldn't be echoed back into
+// whatever UI library owns that data (see Whiteboard.tsx for why).
+export const REMOTE_ORIGIN = Symbol("supabase-provider-remote");
+const LOCAL_ORIGIN = REMOTE_ORIGIN;
 
 type ProviderOptions = {
   debounceMs?: number;
@@ -42,6 +48,7 @@ export class SupabaseYjsProvider {
   private channel: RealtimeChannel | null = null;
   private pendingUpdates: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private debounceMs: number;
   private connected = false;
   private destroyed = false;
@@ -56,7 +63,7 @@ export class SupabaseYjsProvider {
     this.channelName = channelName;
     this.doc = doc;
     this.awareness = new Awareness(doc);
-    this.debounceMs = options.debounceMs ?? 80;
+    this.debounceMs = options.debounceMs ?? 150;
 
     this.doc.on("update", this.handleLocalDocUpdate);
     this.awareness.on("update", this.handleLocalAwarenessUpdate);
@@ -92,15 +99,44 @@ export class SupabaseYjsProvider {
           this.connected = true;
           // Ask peers already in the room to fill in anything we're
           // missing (covers the case where we joined mid-session).
-          this.sendRaw("sync-request", { requesterId: this.instanceId });
+          this.requestSync();
+
+          // Self-heal against dropped broadcast frames: Supabase Realtime
+          // broadcast has no delivery guarantee, so an incremental update
+          // can silently vanish (a brief reconnect, a dropped frame,
+          // etc.) with no error and no retry. Periodically re-sending the
+          // full doc state closes that gap — re-applying state that
+          // already arrived is a no-op, since Y.applyUpdate is
+          // idempotent, so this only matters when something was lost.
+          this.heartbeatTimer = setInterval(() => {
+            if (!this.channel) return;
+            const update = Y.encodeStateAsUpdate(this.doc);
+            this.sendRaw("doc-update", { update: bytesToBase64(update) });
+          }, 4000);
         }
       });
 
     this.channel = channel;
   }
 
+  // A single sync-request can race the server-side channel join right
+  // after SUBSCRIBED fires and get dropped silently, same as any other
+  // broadcast message. Retry a few times with backoff so a late joiner
+  // reliably gets caught up instead of depending on one message landing.
+  private requestSync(attempt = 0) {
+    if (this.destroyed || !this.channel) return;
+    this.sendRaw("sync-request", { requesterId: this.instanceId });
+    if (attempt < 3) {
+      setTimeout(() => this.requestSync(attempt + 1), 800 * (attempt + 1));
+    }
+  }
+
   disconnect() {
     if (!this.channel) return;
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     removeAwarenessStates(this.awareness, [this.doc.clientID], "provider-disconnect");
     this.client.removeChannel(this.channel);
     this.channel = null;
@@ -152,8 +188,15 @@ export class SupabaseYjsProvider {
   }
 
   private applyRemoteUpdate(base64Update: string) {
-    const update = base64ToBytes(base64Update);
-    Y.applyUpdate(this.doc, update, LOCAL_ORIGIN);
+    try {
+      const update = base64ToBytes(base64Update);
+      Y.applyUpdate(this.doc, update, LOCAL_ORIGIN);
+    } catch (err) {
+      // A malformed or partial payload from one peer shouldn't take down
+      // everyone else's session — drop it and let the heartbeat's next
+      // full-state resend correct things.
+      console.error("[supabase-provider] dropped an unreadable remote update", err);
+    }
   }
 
   private sendRaw(event: "doc-update" | "awareness" | "sync-request", payload: Record<string, unknown>) {

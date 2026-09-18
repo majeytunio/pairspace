@@ -47,8 +47,14 @@ export async function loadSnapshot(
   }
   if (!data?.state) return; // brand-new session, nothing to restore
 
-  const bytes = base64ToBytes(data.state);
-  Y.applyUpdate(doc, bytes, "snapshot-load");
+  try {
+    const bytes = base64ToBytes(data.state);
+    Y.applyUpdate(doc, bytes, "snapshot-load");
+  } catch (err) {
+    // A corrupted or unreadable snapshot should degrade to "start from
+    // an empty doc", not take down the whole session load.
+    console.error(`[persistence] snapshot for ${opts.table} was corrupted or unreadable — starting empty`, err);
+  }
 }
 
 export function attachAutosave(
